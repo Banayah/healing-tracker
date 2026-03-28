@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Badge } from "./ui/badge";
 import { getHerbs, saveHerb, deleteHerb, type Herb, type Purchase } from "../lib/storage";
-import { Plus, Trash2, Edit, ShoppingCart, Upload, Download, Grid, Table } from "lucide-react";
+import { Plus, Trash2, Edit, ShoppingCart, Upload, Download, Grid, Table, Search, X } from "lucide-react";
 import { importFile } from "../lib/csvParser";
 
 /**
@@ -43,6 +43,7 @@ export function Herbs() {
   const [secondaryCategory, setSecondaryCategory] = useState("");
   const [description, setDescription] = useState("");
   const [preparationInstructions, setPreparationInstructions] = useState("");
+  const [stockLevel, setStockLevel] = useState<Herb['stockLevel']>("high");
 
   // Purchase Management
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -57,6 +58,13 @@ export function Herbs() {
 
   // View Mode - Card or Table
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+
+  // Search and Filter State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<string>("all");
+  const [filterSupplier, setFilterSupplier] = useState<string>("all");
+  const [filterStock, setFilterStock] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("date-newest");
 
   // Bulk Edit State - for table view
   const [editingCells, setEditingCells] = useState<Record<string, any>>({});
@@ -174,6 +182,7 @@ export function Herbs() {
     setSecondaryCategory("");
     setDescription("");
     setPreparationInstructions("");
+    setStockLevel("high");
     setPurchases([]);
     setEditingHerb(null);
     setShowPurchaseForm(false);
@@ -197,6 +206,7 @@ export function Herbs() {
     setSecondaryCategory(herb.secondaryCategory || "");
     setDescription(herb.description || "");
     setPreparationInstructions(herb.preparationInstructions || "");
+    setStockLevel(herb.stockLevel || "high");
     setPurchases(herb.purchases || []);
     setIsAddDialogOpen(true);
   };
@@ -225,6 +235,7 @@ export function Herbs() {
       secondaryCategory: secondaryCategory.trim() || undefined,
       description: description.trim() || undefined,
       preparationInstructions: preparationInstructions.trim() || undefined,
+      stockLevel: stockLevel,
       dateAdded: editingHerb?.dateAdded || new Date().toISOString(),
       purchases: purchases
     };
@@ -466,6 +477,148 @@ export function Herbs() {
     setTextEditModal({ open: false, herbId: '', field: '', value: '' });
   };
 
+  /**
+   * GET STOCK BADGE - Returns badge color and text for stock level
+   */
+  const getStockBadge = (level?: Herb['stockLevel']) => {
+    switch (level) {
+      case 'high':
+        return { color: 'bg-green-100 text-green-700 border-green-200', icon: '🟢', label: 'High Stock' };
+      case 'medium':
+        return { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: '🟡', label: 'Medium Stock' };
+      case 'low':
+        return { color: 'bg-orange-100 text-orange-700 border-orange-200', icon: '🟠', label: 'Low Stock' };
+      case 'out':
+        return { color: 'bg-red-100 text-red-700 border-red-200', icon: '🔴', label: 'Out of Stock' };
+      default:
+        return { color: 'bg-gray-100 text-gray-700 border-gray-200', icon: '⚪', label: 'Unknown' };
+    }
+  };
+
+  /**
+   * FILTER AND SORT HERBS
+   * Applies search, filters, and sorting to the herbs list
+   */
+  const getFilteredAndSortedHerbs = () => {
+    let filtered = [...herbs];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(herb =>
+        herb.name.toLowerCase().includes(query) ||
+        herb.benefits?.toLowerCase().includes(query) ||
+        herb.category?.toLowerCase().includes(query) ||
+        herb.ingredients?.toLowerCase().includes(query) ||
+        herb.description?.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply supplement type filter
+    if (filterType !== "all") {
+      filtered = filtered.filter(herb => herb.supplementType === filterType);
+    }
+
+    // Apply supplier filter
+    if (filterSupplier !== "all") {
+      filtered = filtered.filter(herb => herb.supplier === filterSupplier);
+    }
+
+    // Apply stock level filter
+    if (filterStock !== "all") {
+      filtered = filtered.filter(herb => herb.stockLevel === filterStock);
+    }
+
+    // Apply sorting
+    switch (sortBy) {
+      case "name-asc":
+        filtered.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "name-desc":
+        filtered.sort((a, b) => b.name.localeCompare(a.name));
+        break;
+      case "date-newest":
+        filtered.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+        break;
+      case "date-oldest":
+        filtered.sort((a, b) => a.dateAdded.localeCompare(b.dateAdded));
+        break;
+      case "purchases-most":
+        filtered.sort((a, b) => (b.purchases?.length || 0) - (a.purchases?.length || 0));
+        break;
+      case "cost-highest":
+        filtered.sort((a, b) => {
+          const costA = a.purchases?.reduce((sum, p) => sum + (p.cost || 0), 0) || 0;
+          const costB = b.purchases?.reduce((sum, p) => sum + (p.cost || 0), 0) || 0;
+          return costB - costA;
+        });
+        break;
+      default:
+        break;
+    }
+
+    return filtered;
+  };
+
+  /**
+   * GET COMPREHENSIVE METRICS
+   * Calculate detailed statistics for the dashboard
+   */
+  const getMetrics = () => {
+    const totalHerbs = herbs.length;
+
+    // Count by type
+    const typeCounts: Record<string, number> = {};
+    herbs.forEach(herb => {
+      typeCounts[herb.supplementType] = (typeCounts[herb.supplementType] || 0) + 1;
+    });
+    const mostCommonType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+
+    // Calculate total investment
+    const totalInvested = herbs.reduce((sum, herb) => {
+      const herbCost = herb.purchases?.reduce((s, p) => s + (p.cost || 0), 0) || 0;
+      return sum + herbCost;
+    }, 0);
+
+    // Count unique suppliers
+    const uniqueSuppliers = new Set(herbs.map(h => h.supplier).filter(Boolean));
+
+    // Count herbs with purchases
+    const herbsWithPurchases = herbs.filter(h => h.purchases && h.purchases.length > 0).length;
+
+    // Count unique categories
+    const uniqueCategories = new Set(herbs.map(h => h.category).filter(Boolean));
+
+    // Recent purchases (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentPurchases = herbs.filter(herb =>
+      herb.purchases?.some(p => new Date(p.date) >= thirtyDaysAgo)
+    ).length;
+
+    // Total purchase count
+    const totalPurchases = herbs.reduce((sum, herb) => sum + (herb.purchases?.length || 0), 0);
+
+    return {
+      totalHerbs,
+      mostCommonType: mostCommonType ? { type: mostCommonType[0], count: mostCommonType[1] } : null,
+      totalInvested,
+      uniqueSuppliers: uniqueSuppliers.size,
+      herbsWithPurchases,
+      uniqueCategories: uniqueCategories.size,
+      recentPurchases,
+      totalPurchases
+    };
+  };
+
+  const filteredHerbs = getFilteredAndSortedHerbs();
+  const metrics = getMetrics();
+
+  // Update bulk edit herbs when filters change
+  useEffect(() => {
+    setBulkEditHerbs(filteredHerbs);
+  }, [searchQuery, filterType, filterSupplier, filterStock, sortBy, herbs]);
+
   // ============================================
   // STEP 3: RENDER - What shows on screen
   // ============================================
@@ -523,28 +676,217 @@ export function Herbs() {
         </div>
       </div>
 
-      {/* Stats Card */}
+      {/* Search and Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">Total Herbs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{herbs.length}</div>
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            {/* Search Bar */}
+            <div>
+              <Input
+                placeholder="Search herbs by name, benefits, category, ingredients..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex-1 min-w-[200px]">
+                <Select value={filterType} onValueChange={setFilterType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="herb">Herb</SelectItem>
+                    <SelectItem value="tonic">Tonic</SelectItem>
+                    <SelectItem value="herb bundle">Herb Bundle</SelectItem>
+                    <SelectItem value="herb blend">Herb Blend</SelectItem>
+                    <SelectItem value="tea bag">Tea Bag</SelectItem>
+                    <SelectItem value="pills">Pills</SelectItem>
+                    <SelectItem value="gel">Gel</SelectItem>
+                    <SelectItem value="topical">Topical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex-1 min-w-[200px]">
+                <Select value={filterSupplier} onValueChange={setFilterSupplier}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Suppliers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Suppliers</SelectItem>
+                    {allSuppliers.map((supplier) => (
+                      <SelectItem key={supplier} value={supplier}>
+                        {supplier}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex-1 min-w-[200px]">
+                <Select value={filterStock} onValueChange={setFilterStock}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Stock Levels" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Stock Levels</SelectItem>
+                    <SelectItem value="high">🟢 High Stock</SelectItem>
+                    <SelectItem value="medium">🟡 Medium Stock</SelectItem>
+                    <SelectItem value="low">🟠 Low Stock</SelectItem>
+                    <SelectItem value="out">🔴 Out of Stock</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex-1 min-w-[200px]">
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sort By" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="date-newest">Date Added (Newest)</SelectItem>
+                    <SelectItem value="date-oldest">Date Added (Oldest)</SelectItem>
+                    <SelectItem value="name-asc">Name (A-Z)</SelectItem>
+                    <SelectItem value="name-desc">Name (Z-A)</SelectItem>
+                    <SelectItem value="purchases-most">Most Purchased</SelectItem>
+                    <SelectItem value="cost-highest">Highest Cost</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(searchQuery || filterType !== "all" || filterSupplier !== "all" || filterStock !== "all") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setFilterType("all");
+                    setFilterSupplier("all");
+                    setFilterStock("all");
+                  }}
+                >
+                  Clear Filters
+                </Button>
+              )}
+            </div>
+
+            {/* Results Counter */}
+            <div className="text-sm text-gray-600">
+              Showing <strong>{filteredHerbs.length}</strong> of <strong>{herbs.length}</strong> herbs
+            </div>
+          </div>
         </CardContent>
       </Card>
+
+      {/* Needs Reorder Alert - Show herbs that are low or out of stock */}
+      {(() => {
+        const needsReorder = herbs.filter(h => h.stockLevel === 'low' || h.stockLevel === 'out');
+        if (needsReorder.length === 0) return null;
+
+        return (
+          <Card className="border-orange-200 bg-orange-50/50">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <span className="text-orange-600">⚠️ Needs Reorder</span>
+                <Badge className="bg-orange-600 text-white">{needsReorder.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {needsReorder.map(herb => {
+                  const badge = getStockBadge(herb.stockLevel);
+                  return (
+                    <div key={herb.id} className="flex items-center justify-between p-3 bg-white rounded border">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{badge.icon}</span>
+                        <div>
+                          <div className="font-medium">{herb.name}</div>
+                          <div className="text-sm text-gray-600">
+                            {herb.supplementType} {herb.supplier && `• ${herb.supplier}`}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditDialog(herb)}
+                      >
+                        Update Stock
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* Enhanced Metrics Dashboard - Hidden when searching/filtering */}
+      {!searchQuery && filterType === "all" && filterSupplier === "all" && filterStock === "all" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Inventory Overview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-2xl font-bold text-blue-600">{metrics.totalHerbs}</div>
+                <div className="text-xs text-gray-600 mt-1">Total Herbs</div>
+              </div>
+              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                <div className="text-2xl font-bold text-purple-600">{metrics.mostCommonType?.count || 0}</div>
+                <div className="text-xs text-gray-600 mt-1">{metrics.mostCommonType?.type || 'N/A'}</div>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <div className="text-2xl font-bold text-green-600">${metrics.totalInvested.toFixed(0)}</div>
+                <div className="text-xs text-gray-600 mt-1">Total Invested</div>
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <div className="text-2xl font-bold text-orange-600">{metrics.uniqueSuppliers}</div>
+                <div className="text-xs text-gray-600 mt-1">Suppliers</div>
+              </div>
+              <div className="text-center p-3 bg-teal-50 rounded-lg">
+                <div className="text-2xl font-bold text-teal-600">{metrics.herbsWithPurchases}</div>
+                <div className="text-xs text-gray-600 mt-1">With Purchases</div>
+              </div>
+              <div className="text-center p-3 bg-indigo-50 rounded-lg">
+                <div className="text-2xl font-bold text-indigo-600">{metrics.uniqueCategories}</div>
+                <div className="text-xs text-gray-600 mt-1">Categories</div>
+              </div>
+              <div className="text-center p-3 bg-pink-50 rounded-lg">
+                <div className="text-2xl font-bold text-pink-600">{metrics.recentPurchases}</div>
+                <div className="text-xs text-gray-600 mt-1">Recent (30d)</div>
+              </div>
+              <div className="text-center p-3 bg-amber-50 rounded-lg">
+                <div className="text-2xl font-bold text-amber-600">{metrics.totalPurchases}</div>
+                <div className="text-xs text-gray-600 mt-1">All Purchases</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* CARD VIEW */}
       {viewMode === "cards" && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {herbs.map((herb) => (
+            {filteredHerbs.map((herb) => (
               <Card key={herb.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <CardTitle className="text-lg">{herb.name}</CardTitle>
-                      <div className="mt-1">
-                        <Badge variant="outline" className="mr-2">{herb.supplementType}</Badge>
+                      <div className="mt-1 flex flex-wrap gap-2 items-center">
+                        <Badge variant="outline">{herb.supplementType}</Badge>
+                        {herb.stockLevel && (
+                          <Badge className={`border ${getStockBadge(herb.stockLevel).color}`}>
+                            {getStockBadge(herb.stockLevel).icon} {getStockBadge(herb.stockLevel).label}
+                          </Badge>
+                        )}
                         {herb.supplier && <span className="text-xs text-gray-600">{herb.supplier}</span>}
                       </div>
                     </div>
@@ -590,10 +932,12 @@ export function Herbs() {
             ))}
           </div>
 
-          {herbs.length === 0 && (
+          {filteredHerbs.length === 0 && (
             <Card>
               <CardContent className="py-12 text-center text-gray-600">
-                No herbs yet. Click "Add Herb" to get started.
+                {herbs.length === 0
+                  ? "No herbs yet. Click 'Add Herb' to get started."
+                  : "No herbs match your search or filters. Try adjusting your criteria."}
               </CardContent>
             </Card>
           )}
@@ -663,6 +1007,7 @@ export function Herbs() {
                             <SelectItem value="herb blend">Herb Blend</SelectItem>
                             <SelectItem value="tea bag">Tea Bag</SelectItem>
                             <SelectItem value="pills">Pills</SelectItem>
+                            <SelectItem value="gel">Gel</SelectItem>
                             <SelectItem value="topical">Topical</SelectItem>
                           </SelectContent>
                         </Select>
@@ -740,7 +1085,9 @@ export function Herbs() {
 
             {bulkEditHerbs.length === 0 && (
               <div className="py-12 text-center text-gray-600">
-                No herbs yet. Click "Add Herb" to get started.
+                {herbs.length === 0
+                  ? "No herbs yet. Click 'Add Herb' to get started."
+                  : "No herbs match your search or filters. Try adjusting your criteria."}
               </div>
             )}
           </CardContent>
@@ -774,7 +1121,7 @@ export function Herbs() {
             <TabsContent value="details" className="space-y-4 py-4">
             {/* Product Name - Required */}
             <div>
-              <Label htmlFor="name">Product Name *</Label>
+              <Label htmlFor="name" className="block mb-2">Product Name *</Label>
               <Input
                 id="name"
                 value={name}
@@ -787,7 +1134,7 @@ export function Herbs() {
             {/* Supplement Type & Supplier */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="supplementType">Supplement Type</Label>
+                <Label htmlFor="supplementType" className="block mb-2">Supplement Type</Label>
                 <Select value={supplementType} onValueChange={(val) => setSupplementType(val as Herb['supplementType'])}>
                   <SelectTrigger>
                     <SelectValue />
@@ -799,13 +1146,14 @@ export function Herbs() {
                     <SelectItem value="herb blend">Herb Blend</SelectItem>
                     <SelectItem value="tea bag">Tea Bag</SelectItem>
                     <SelectItem value="pills">Pills</SelectItem>
+                    <SelectItem value="gel">Gel</SelectItem>
                     <SelectItem value="topical">Topical</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
-                <Label htmlFor="supplier">Supplier</Label>
+                <Label htmlFor="supplier" className="block mb-2">Supplier</Label>
                 <Input
                   id="supplier"
                   list="suppliers-list"
@@ -825,7 +1173,7 @@ export function Herbs() {
             {/* Serving & Daily Amount */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="serving">Serving Size</Label>
+                <Label htmlFor="serving" className="block mb-2">Serving Size</Label>
                 <Input
                   id="serving"
                   value={serving}
@@ -835,7 +1183,7 @@ export function Herbs() {
               </div>
 
               <div>
-                <Label htmlFor="dailyAmount">Daily Amount</Label>
+                <Label htmlFor="dailyAmount" className="block mb-2">Daily Amount</Label>
                 <Input
                   id="dailyAmount"
                   value={dailyAmount}
@@ -848,7 +1196,7 @@ export function Herbs() {
             {/* Category & Sub Category */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="category">Category</Label>
+                <Label htmlFor="category" className="block mb-2">Category</Label>
                 <Input
                   id="category"
                   value={category}
@@ -858,7 +1206,7 @@ export function Herbs() {
               </div>
 
               <div>
-                <Label htmlFor="secondaryCategory">Sub Category</Label>
+                <Label htmlFor="secondaryCategory" className="block mb-2">Sub Category</Label>
                 <Input
                   id="secondaryCategory"
                   value={secondaryCategory}
@@ -868,9 +1216,25 @@ export function Herbs() {
               </div>
             </div>
 
+            {/* Stock Level */}
+            <div>
+              <Label htmlFor="stockLevel" className="block mb-2">Stock Level</Label>
+              <Select value={stockLevel} onValueChange={(val) => setStockLevel(val as Herb['stockLevel'])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">🟢 High Stock - Plenty Available</SelectItem>
+                  <SelectItem value="medium">🟡 Medium Stock - Running Low</SelectItem>
+                  <SelectItem value="low">🟠 Low Stock - Need to Reorder</SelectItem>
+                  <SelectItem value="out">🔴 Out of Stock - Need ASAP</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Ingredients */}
             <div>
-              <Label htmlFor="ingredients">Ingredients</Label>
+              <Label htmlFor="ingredients" className="block mb-2">Ingredients</Label>
               <Textarea
                 id="ingredients"
                 value={ingredients}
@@ -882,7 +1246,7 @@ export function Herbs() {
 
             {/* Benefits */}
             <div>
-              <Label htmlFor="benefits">Benefits</Label>
+              <Label htmlFor="benefits" className="block mb-2">Benefits</Label>
               <Textarea
                 id="benefits"
                 value={benefits}
@@ -894,7 +1258,7 @@ export function Herbs() {
 
             {/* Description */}
             <div>
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description" className="block mb-2">Description</Label>
               <Textarea
                 id="description"
                 value={description}
@@ -906,7 +1270,7 @@ export function Herbs() {
 
             {/* Preparation Instructions */}
             <div>
-              <Label htmlFor="preparation">Preparation Instructions</Label>
+              <Label htmlFor="preparation" className="block mb-2">Preparation Instructions</Label>
               <Textarea
                 id="preparation"
                 value={preparationInstructions}
@@ -922,7 +1286,7 @@ export function Herbs() {
             {/* ============================================ */}
             <TabsContent value="purchases" className="space-y-4 py-4">
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-4">
                 <Label className="text-base">Purchase History</Label>
                 <Button
                   type="button"
@@ -1039,7 +1403,7 @@ export function Herbs() {
 
               {/* Purchase List */}
               {purchases.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-2 mt-4">
                   {purchases.map((purchase) => (
                     <div key={purchase.id} className="flex items-center justify-between bg-gray-50 p-3 rounded border">
                       <div className="text-sm">
@@ -1062,7 +1426,7 @@ export function Herbs() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded">
+                <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded mt-4">
                   No purchases recorded yet. Click "Add Purchase" to track when you bought this herb.
                 </p>
               )}

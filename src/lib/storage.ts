@@ -5,7 +5,7 @@ import * as idb from './indexedDB';
 export interface Herb {
   id: string;
   name: string;
-  supplementType: 'herb' | 'tonic' | 'herb bundle' | 'herb blend' | 'tea bag' | 'pills' | 'topical';
+  supplementType: 'herb' | 'tonic' | 'herb bundle' | 'herb blend' | 'tea bag' | 'pills' | 'gel' | 'topical';
   category: string;
   secondaryCategory?: string;
   benefits: string;
@@ -15,6 +15,7 @@ export interface Herb {
   preparationInstructions?: string;
   serving?: string; // e.g., "2/4 OZ"
   dailyAmount?: string; // e.g., "3 Cups Daily"
+  stockLevel?: 'high' | 'medium' | 'low' | 'out'; // Inventory tracking
   dateAdded: string;
   purchases: Purchase[];
 }
@@ -28,6 +29,7 @@ export interface Food {
   lysine: number; // mg per serving
   arginine: number; // mg per serving
   supplier?: string;
+  stockLevel?: 'high' | 'medium' | 'low' | 'out'; // Inventory tracking
   notes?: string;
   description?: string;
   ingredients?: string; // for processed foods
